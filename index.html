@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hangman</title>
+<style>
+:root{
+  --bg:#f3efe6; --ink:#1d2a2e; --muted:#5d6b6e; --key:#fffdf8; --line:#cfc8b8;
+  --good:#2f7d5b; --bad:#b4472f; --rope:#8a6a3f;
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#161d20; --ink:#ece7da; --muted:#98a4a6; --key:#222c30; --line:#37444a; --good:#58b88e; --bad:#e2765e; --rope:#c49a5e}
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:Georgia,"Times New Roman",serif;min-height:100vh;display:flex;justify-content:center;padding:24px 16px}
+main{width:100%;max-width:560px;display:flex;flex-direction:column;align-items:center;gap:18px}
+h1{margin:0;font-size:2rem;letter-spacing:.02em}
+.hint{margin:0;color:var(--muted);font-style:italic;text-align:center;min-height:1.4em}
+svg{width:200px;height:220px}
+svg .frame{stroke:var(--rope);stroke-width:5;stroke-linecap:round;fill:none}
+svg .part{stroke:var(--ink);stroke-width:4;stroke-linecap:round;fill:none;opacity:0;transition:opacity .25s}
+svg .part.on{opacity:1}
+.word{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;min-height:3rem}
+.slot{width:2.1rem;height:3rem;border-bottom:3px solid var(--ink);display:flex;align-items:center;justify-content:center;font-size:1.9rem;font-weight:bold;text-transform:uppercase}
+.slot.missed{color:var(--bad)}
+.status{margin:0;font-size:1.05rem;min-height:1.5em;text-align:center}
+.status.win{color:var(--good);font-weight:bold}
+.status.lose{color:var(--bad);font-weight:bold}
+.kb{display:grid;grid-template-columns:repeat(9,1fr);gap:6px;width:100%}
+.kb button{font:inherit;font-size:1.1rem;font-weight:bold;text-transform:uppercase;padding:10px 0;background:var(--key);color:var(--ink);border:1px solid var(--line);border-radius:6px;cursor:pointer}
+.kb button:focus-visible,.again:focus-visible{outline:3px solid var(--good);outline-offset:2px}
+.kb button.hit{background:var(--good);border-color:var(--good);color:#fff}
+.kb button.miss{background:var(--bad);border-color:var(--bad);color:#fff;opacity:.75}
+.kb button:disabled{cursor:default}
+.again{font:inherit;font-size:1.05rem;padding:10px 22px;border-radius:6px;border:2px solid var(--ink);background:var(--ink);color:var(--bg);cursor:pointer}
+.again[hidden]{display:none}
+.left{color:var(--muted);font-size:.95rem}
+@media(max-width:420px){.kb{grid-template-columns:repeat(7,1fr)}.slot{width:1.7rem;font-size:1.5rem}}
+</style>
+</head>
+<body>
+<main>
+  <h1>Hangman</h1>
+  <p class="hint" id="hint"></p>
+  <svg viewBox="0 0 200 220" aria-hidden="true">
+    <path class="frame" d="M20 210 H120 M70 210 V15 H140 V40"/>
+    <circle class="part" cx="140" cy="58" r="18"/>
+    <path class="part" d="M140 76 V135"/>
+    <path class="part" d="M140 88 L116 115"/>
+    <path class="part" d="M140 88 L164 115"/>
+    <path class="part" d="M140 135 L118 175"/>
+    <path class="part" d="M140 135 L162 175"/>
+  </svg>
+  <div class="left" id="left" aria-live="polite"></div>
+  <div class="word" id="word" aria-label="Word to guess"></div>
+  <p class="status" id="status" role="status" aria-live="polite"></p>
+  <div class="kb" id="kb"></div>
+  <button class="again" id="again" hidden>Play again</button>
+</main>
+
+<script>
+const MAX = 6;
+const WORDS = [
+  ["animals","It has a mane","lion"],["animals","Black and white striped horse relative","zebra"],
+  ["animals","Largest land animal","elephant"],["animals","Tall with a very long neck","giraffe"],
+  ["animals","Slow and lives in trees","sloth"],["animals","Marsupial that hops","kangaroo"],
+  ["animals","Flightless bird in the cold south","penguin"],["animals","Extinct bird once found in Mauritius","dodo"],
+  ["animals","Eight legs, spins webs","spider"],["animals","Sea mammal that clicks and sings","dolphin"],
+  ["animals","Striped big cat","tiger"],["animals","Shelled reptile that lives a long time","tortoise"],
+  ["food","Yellow fruit monkeys love","banana"],["food","Italian baked dish with toppings","pizza"],
+  ["food","Fried potato sticks","chips"],["food","Tropical fruit with spiky skin","pineapple"],
+  ["food","Red fruit often mistaken for a vegetable","tomato"],["food","Sweet spread made by bees","honey"],
+  ["food","Rolled dough with rice and fish","sushi"],["food","Orange root vegetable","carrot"],
+  ["food","Breakfast flat cake with syrup","pancake"],["food","Frozen sweet treat","icecream"],
+  ["places","Capital of France","paris"],["places","Island nation in the Indian Ocean with the dodo","mauritius"],
+  ["places","Largest hot desert","sahara"],["places","Tallest mountain on Earth","everest"],
+  ["places","Country shaped like a boot","italy"],["places","River through Egypt","nile"],
+  ["places","Continent of kangaroos","australia"],["places","Famous leaning tower city","pisa"],
+  ["places","Land of fjords and Vikings","norway"],["places","Largest ocean","pacific"],
+  ["tech","Programming language named for a snake","python"],["tech","You type on it","keyboard"],
+  ["tech","Used to browse the web","browser"],["tech","Where code is stored and shared","github"],
+  ["tech","Pointing device","mouse"],["tech","Set of rules a program follows","algorithm"],
+  ["tech","Wireless network","wifi"],["tech","Fixes a bug in code","debug"],
+  ["tech","Structure of a web page","html"],["tech","Stores data in rows and columns","database"],
+  ["objects","Tells the time on your wrist","watch"],["objects","Keeps rain off you","umbrella"],
+  ["objects","Used to open a lock","key"],["objects","Glass you look through to see far","telescope"],
+  ["objects","Used to write or draw","pencil"],["objects","Carries you across water","boat"],
+  ["objects","Shows your reflection","mirror"],["objects","Two wheels and pedals","bicycle"],
+  ["objects","Lights up a dark room","lamp"],["objects","Holds books on a wall","shelf"],
+  ["nature","Appears after rain and sun","rainbow"],["nature","Erupts with lava","volcano"],
+  ["nature","Planet with rings","saturn"],["nature","Earth's natural satellite","moon"],
+  ["nature","Giant wave from an earthquake","tsunami"],["nature","Frozen rain that falls in winter","snow"]
+];
+
+const $ = id => document.getElementById(id);
+const wordEl = $("word"), kb = $("kb"), statusEl = $("status"), hintEl = $("hint"),
+      leftEl = $("left"), againBtn = $("again");
+const parts = document.querySelectorAll("svg .part");
+
+let answer, category, hint, guessed, wrong, over, lastIdx = -1;
+
+// Build keyboard once
+const keyBtns = {};
+"abcdefghijklmnopqrstuvwxyz".split("").forEach(ch => {
+  const b = document.createElement("button");
+  b.textContent = ch;
+  b.type = "button";
+  b.setAttribute("aria-label", "Guess " + ch);
+  b.addEventListener("click", () => guess(ch));
+  kb.appendChild(b);
+  keyBtns[ch] = b;
+});
+
+function newGame(){
+  let i;
+  do { i = Math.floor(Math.random() * WORDS.length); } while (i === lastIdx && WORDS.length > 1);
+  lastIdx = i;
+  [category, hint, answer] = WORDS[i];
+  guessed = new Set();
+  wrong = 0;
+  over = false;
+  hintEl.textContent = "Category: " + category + " — " + hint;
+  statusEl.textContent = "";
+  statusEl.className = "status";
+  againBtn.hidden = true;
+  Object.values(keyBtns).forEach(b => { b.disabled = false; b.className = ""; });
+  render();
+}
+
+function render(){
+  wordEl.innerHTML = "";
+  for (const ch of answer){
+    const s = document.createElement("span");
+    s.className = "slot";
+    if (guessed.has(ch)) s.textContent = ch;
+    else if (over) { s.textContent = ch; s.classList.add("missed"); }
+    wordEl.appendChild(s);
+  }
+  parts.forEach((p, i) => p.classList.toggle("on", i < wrong));
+  leftEl.textContent = (MAX - wrong) + " wrong guess" + (MAX - wrong === 1 ? "" : "es") + " left";
+}
+
+function guess(raw){
+  if (over) return;
+  const ch = String(raw).toLowerCase();
+  if (!/^[a-z]$/.test(ch)) return;
+  if (guessed.has(ch)) return;            // repeat guess costs nothing
+  guessed.add(ch);
+  const hit = answer.includes(ch);
+  keyBtns[ch].classList.add(hit ? "hit" : "miss");
+  keyBtns[ch].disabled = true;
+  if (!hit) wrong++;
+
+  const won = [...answer].every(c => guessed.has(c));
+  if (won){
+    over = true;
+    statusEl.textContent = "You got it!";
+    statusEl.className = "status win";
+  } else if (wrong >= MAX){
+    over = true;
+    statusEl.textContent = "Out of guesses. The word was “" + answer + "”.";
+    statusEl.className = "status lose";
+  }
+  if (over){
+    Object.values(keyBtns).forEach(b => b.disabled = true);
+    againBtn.hidden = false;
+    againBtn.focus();
+  }
+  render();
+}
+
+document.addEventListener("keydown", e => {
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (over && e.key === "Enter") return;  // lets the focused Play again button handle it
+  if (e.key.length === 1) guess(e.key);
+});
+againBtn.addEventListener("click", newGame);
+
+newGame();
+</script>
+</body>
+</html>
